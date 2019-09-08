@@ -627,7 +627,7 @@ void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
   if (ignoreCCReadyFlag == true || sys_stat.bits.CC_READY == 1)
   {
     adcVal = (readRegister(0x32) << 8) | readRegister(0x33);
-    batCurrent = adcVal * 8.44 / 5.0;  // mA
+    batCurrent = adcVal * 8.44 / shuntResistorValue_mOhm;  // mA
 
     if (batCurrent > -10 && batCurrent < 10)
     {
