@@ -21,7 +21,6 @@
   TODO:
   - Balancing algorithm
   - SOC calculation + coulomb counting
-
 */
 
 #include <Arduino.h>
@@ -36,22 +35,35 @@ bq769x0* bq769x0::instancePointer = 0;
 
 
 #if BQ769X0_DEBUG
-
 const char *byte2char(int x)
 {
-    static char b[9];
-    b[0] = '\0';
-
-    int z;
-    for (z = 128; z > 0; z >>= 1)
-    {
-        strcat(b, ((x & z) == z) ? "1" : "0");
-    }
-
-    return b;
+  static char b[9];
+  b[0] = '\0';
+  int z;
+  for (z = 128; z > 0; z >>= 1) strcat(b, ((x & z) == z) ? "1" : "0");
+  return b;
 }
-
 #endif
+
+// CRC calculation taken from LibreSolar mbed firmware (thanks to mikethezipper for finding it out)
+uint8_t _crc8_ccitt_update (uint8_t inCrc, uint8_t inData)
+{
+  uint8_t i;
+  uint8_t data;
+  data = inCrc ^ inData;
+
+  for ( i = 0; i < 8; i++ )
+  {
+    if (( data & 0x80 ) != 0 )
+    {
+      data <<= 1;
+      data ^= 0x07;
+    }
+    else data <<= 1;
+  }
+
+  return data;
+}
 
 //----------------------------------------------------------------------------
 
@@ -88,8 +100,7 @@ int bq769x0::begin(byte alertPin, byte bootPin)
     cellVoltages[i] = 0;
   }
   
-  // Boot IC if pin is defined (else: manual boot via push button has to be 
-  // done before calling this method)
+  // Boot IC if pin is defined (else: manual boot via push button has to be done before calling this method)
   if (bootPin >= 0)
   {
     pinMode(bootPin, OUTPUT);
@@ -99,10 +110,14 @@ int bq769x0::begin(byte alertPin, byte bootPin)
     delay(10);  // wait for device to boot up completely (datasheet: max. 10 ms)
   }
  
-  // test communication
-  writeRegister(CC_CFG, 0x19);       // should be set to 0x19 according to datasheet
-  if (readRegister(CC_CFG) == 0x19)
+  if (determineAddressAndCrc())
   {
+    Serial.println("Address and CRC detection successful");
+    Serial.print("Address: ");
+    Serial.println(I2CAddress, HEX);
+    Serial.print("CRC Enabled: ");
+    Serial.println(crcEnabled);
+
     // initial settings for bq769x0
     writeRegister(SYS_CTRL1, B00011000);  // switch external thermistor and ADC on
     writeRegister(SYS_CTRL2, B01000000);  // switch CC_EN on
@@ -113,11 +128,11 @@ int bq769x0::begin(byte alertPin, byte bootPin)
 
     // get ADC offset and gain
     adcOffset = (signed int) readRegister(ADCOFFSET);  // convert from 2's complement
-    adcGain = 365 + (((readRegister(ADCGAIN1) & B00001100) << 1) | 
-      ((readRegister(ADCGAIN2) & B11100000) >> 5)); // uV/LSB
+    adcGain = 365 + (((readRegister(ADCGAIN1) & B00001100) << 1) | ((readRegister(ADCGAIN2) & B11100000) >> 5)); // uV/LSB
     
     return 0;
   }
+
   else
   {
     #if BQ769X0_DEBUG
@@ -125,6 +140,37 @@ int bq769x0::begin(byte alertPin, byte bootPin)
     #endif
     return 1;
   }
+}
+
+//----------------------------------------------------------------------------
+// automatically find out address and CRC setting
+
+bool bq769x0::determineAddressAndCrc(void)
+{
+  Serial.println("Determining i2c address and whether CRC is enabled");
+
+  // check for each address and CRC combination while also set CC_CFG to 0x19 as per datasheet
+  I2CAddress = 0x08;
+  crcEnabled = true;
+  writeRegister(CC_CFG, 0x19);
+  if (readRegister(CC_CFG) == 0x19) return true;
+
+  I2CAddress = 0x18;
+  crcEnabled = true;
+  writeRegister(CC_CFG, 0x19);
+  if (readRegister(CC_CFG) == 0x19) return true;
+
+  I2CAddress = 0x08;
+  crcEnabled = false;
+  writeRegister(CC_CFG, 0x19);
+  if (readRegister(CC_CFG) == 0x19) return true;
+
+  I2CAddress = 0x18;
+  crcEnabled = false;
+  writeRegister(CC_CFG, 0x19);
+  if (readRegister(CC_CFG) == 0x19) return true;
+
+  return false;
 }
 
 //----------------------------------------------------------------------------
@@ -649,47 +695,118 @@ void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
 }
 
 //----------------------------------------------------------------------------
-// reads all cell voltages to array cellVoltages[4] and updates batVoltage
+// reads all cell voltages and updates batVoltage
+// now supports CRC, taken from mbed version of LibreSolar firmware (thanks to mikethezipper)
 
 void bq769x0::updateVoltages()
 {
   long adcVal = 0;
-  
-  // read battery pack voltage
-  adcVal = (readRegister(BAT_HI_BYTE) << 8) | readRegister(BAT_LO_BYTE);
-  batVoltage = 4.0 * adcGain * adcVal / 1000.0 + 4 * adcOffset;
-  
-  // read cell voltages
-  Wire.beginTransmission(I2CAddress);
-  Wire.write(VC1_HI_BYTE);
-  Wire.endTransmission();
-  
-  if (Wire.requestFrom(I2CAddress, 2 * numberOfCells) == 2 * numberOfCells)
-  {
-    idCellMaxVoltage = 0;
-    idCellMinVoltage = 0;
-    for (int i = 0; i < numberOfCells; i++)
-    {
-      adcVal = ((Wire.read() & B00111111) << 8) | Wire.read();
-      cellVoltages[i] = adcVal * adcGain / 1000 + adcOffset;
+  char buf[4];
+  int connectedCellsTemp = 0;
+  idCellMaxVoltage = 0; //resets to zero before writing values to these vars
+  idCellMinVoltage = 0;
+  byte connectedCells = 0;
 
-      if (cellVoltages[i] > cellVoltages[idCellMaxVoltage]) {
-        idCellMaxVoltage = i;
+  uint8_t crc;
+  crc = 0;
+  buf[0] = (char) VC1_HI_BYTE; // start with the first cell
+  
+  Wire.beginTransmission(I2CAddress);
+  Wire.write(buf[0]);     // tell slave that this is the address it is interested in
+  Wire.endTransmission(); // end transmission so that read can begin
+
+  /****************************************************\
+    Note that each cell voltage is 14 bits stored across two 8 bit register locations in the BQ769x0 chip.
+    This means that first we need to read register HI (in first instance this is VC1_HI_BYTE), 
+    however this 8 bit piece of data has two worthless first digits - garbage.
+    To remove the first two bits, the bitwise & is used. By saying A & 00111111, only the last 6 bits of A are used. 
+    Meanwhile all of the 8 bits on the low side are used. So the overall reading is the last 6 bits of high in front of the 8 bits from low.
+    To add the hi and lo readings together, the << is used to shift the hi value over by 8 bits, then adding it to the 8 bits.
+    This is done by using the OR operator |. So the total thing looks like: adcVal = (VC_HI_BYTE & 0b00111111) << 8 | VC_LO_BYTE;
+  \****************************************************/
+
+  // will run once for each cell up to the total num of cells
+  for (int i = 0; i < numberOfCells; i++) {
+    if (crcEnabled == true) {
+      // refer to datasheet at 10.3.1.4 "Communications Subsystem"
+      Wire.requestFrom(I2CAddress, 4);  // request 4 bytes: 1) VCx_HI - 2) VCx_HI CRC - 3) VCx_LO - 4) VCx_LO CRC
+      buf[0] = Wire.read();             // VCx_HI - note that only bottom 6 bits are good
+      buf[1] = Wire.read();             // VCx_HI CRC - done on address and data
+      buf[2] = Wire.read();             // VCx_LO - all 8 bits are used
+      buf[3] = Wire.read();             // VCx_LO CRC - done on just the data byte
+      
+      // check if CRC matches data bytes
+      // CRC of first byte includes slave address (including R/W bit) and data
+      crc = _crc8_ccitt_update(0, (I2CAddress << 1) | 1);
+      crc = _crc8_ccitt_update(crc, buf[0]);
+      if (crc != buf[1]){
+        Serial.println("CRC check failed - VCxHI data and its CRC doesn't match");
+        return; //don't save corrupt value and exit
       }
-      if (cellVoltages[i] < cellVoltages[idCellMinVoltage] && cellVoltages[i] > 500) {
-        idCellMinVoltage = i;
+        
+      // CRC of subsequent bytes contain only data
+      crc = _crc8_ccitt_update(0, buf[2]);
+      if (crc != buf[3]) {
+        Serial.println("CRC check failed - VCxLO data and its CRC doesn't match");
+        return; // don't save corrupted value
       }
+    } 
+
+    // if CRC is disabled only read 2 bytes and call it a day :)
+    else { 
+      Wire.requestFrom(I2CAddress, 2);
+      buf[0] = Wire.read(); // VCx_HI - note that only bottom 6 bits are good
+      buf[2] = Wire.read(); // VCx_LO - all 8 bits are used
+    }
+
+    // combine VCx_HI and VCx_LO bits and calculate cell voltage
+    adcVal = (buf[0] & 0b00111111) << 8 | buf[2];           // read VCx_HI bits and drop the first two bits, shift left then append VCx_LO bits
+    cellVoltages[i] = adcVal * adcGain / 1000 + adcOffset;  // calculate real voltage in mV
+  
+    // filter out voltage readings from unconnected cell(s)
+    if (cellVoltages[i] > 500) {  
+      connectedCellsTemp++; // add one to the temporary cell counter var - only readings above 500mV are counted towards real cell count
+    }
+
+    if (cellVoltages[i] > cellVoltages[idCellMaxVoltage]) {
+      idCellMaxVoltage = i;
+    }
+
+    if (cellVoltages[i] < cellVoltages[idCellMinVoltage] && cellVoltages[i] > 500) {
+      idCellMinVoltage = i;
     }
   }
+  
+  connectedCells = connectedCellsTemp;
+  adcVal = (readRegister(BAT_HI_BYTE) << 8) | readRegister(BAT_LO_BYTE);
+  batVoltage = 4.0 * adcGain * adcVal / 1000.0 + connectedCells * adcOffset;
 }
 
 //----------------------------------------------------------------------------
+// now supports CRC, taken from mbed version of LibreSolar firmware (thanks to mikethezipper)
 
 void bq769x0::writeRegister(byte address, int data)
 {
-  Wire.beginTransmission(I2CAddress);
-  Wire.write(address);
-  Wire.write(data);
+  uint8_t crc = 0;
+  char buf[3];
+  buf[0] = (char) address;
+  buf[1] = data;
+
+  // note that writes to the bq769x0 IC are: 1) start - 2) address - 3) address - 4) data - 5) CRC8 - 6) stop bit
+  Wire.beginTransmission(I2CAddress); // writes start bit - the first step
+  Wire.write(buf[0]);                 // writes register address
+  Wire.write(buf[1]);                 // writes data - the fourth step
+ 
+  if (crcEnabled == true) {
+    // CRC is calculated over the slave address (including R/W bit), register address, and data.
+    crc = _crc8_ccitt_update(crc, (I2CAddress << 1) | 0);
+    crc = _crc8_ccitt_update(crc, buf[0]);
+    crc = _crc8_ccitt_update(crc, buf[1]);
+    buf[2] = crc;
+
+    Wire.write(buf[2]); // writes CRC
+  }
+
   Wire.endTransmission();
 }
 
@@ -739,6 +856,12 @@ void bq769x0::printRegisters()
   Serial.print(F("0x01 CELLBAL1:  "));
   Serial.println(byte2char(readRegister(CELLBAL1)));
 
+  Serial.print(F("0x02 CELLBAL2:  "));
+  Serial.println(byte2char(readRegister(CELLBAL2)));
+
+  Serial.print(F("0x03 CELLBAL3:  "));
+  Serial.println(byte2char(readRegister(CELLBAL3)));
+
   Serial.print(F("0x04 SYS_CTRL1: "));
   Serial.println(byte2char(readRegister(SYS_CTRL1)));
   
@@ -768,16 +891,15 @@ void bq769x0::printRegisters()
 
   Serial.print(F("0x33 CC_LO:     "));
   Serial.println(byte2char(readRegister(CC_LO_BYTE)));
-/*
-  Serial.print(F("0x50 ADCGAIN1:  "));
-  Serial.println(byte2char(readRegister(ADCGAIN1)));
 
-  Serial.print(F("0x51 ADCOFFSET: "));
-  Serial.println(byte2char(readRegister(ADCOFFSET)));
+  // Serial.print(F("0x50 ADCGAIN1:  "));
+  // Serial.println(byte2char(readRegister(ADCGAIN1)));
 
-  Serial.print(F("0x59 ADCGAIN2:  "));
-  Serial.println(byte2char(readRegister(ADCGAIN2)));
-  */
+  // Serial.print(F("0x51 ADCOFFSET: "));
+  // Serial.println(byte2char(readRegister(ADCOFFSET)));
+
+  // Serial.print(F("0x59 ADCGAIN2:  "));
+  // Serial.println(byte2char(readRegister(ADCGAIN2)));
 }
 
 #endif

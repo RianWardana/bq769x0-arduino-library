@@ -43,14 +43,14 @@ class bq769x0 {
     bq769x0(byte bqType = bq76920, int bqI2CAddress = 0x18);
     int begin(byte alertPin, byte bootPin = -1);
     int checkStatus();  // returns 0 if everything is OK
-		void update(void);
-		void shutdown(void);
+	void update(void);
+	void shutdown(void);
 
     // charging control
-		bool enableCharging(void);
-		void disableCharging(void);
-		bool enableDischarging(void);
-		void disableDischarging(void);
+	bool enableCharging(void);
+	void disableCharging(void);
+	bool enableDischarging(void);
+	void disableDischarging(void);
     
     // hardware settings
     void setShuntResistorValue(int res_mOhm);
@@ -65,49 +65,48 @@ class bq769x0 {
     int setCellOvervoltageProtection(int voltage_mV, int delay_s = 1);
 
     // balancing settings
- 		void setBalancingThresholds(int idleTime_min = 30, int absVoltage_mV = 3400, byte voltageDifference_mV = 20);
+ 	void setBalancingThresholds(int idleTime_min = 30, int absVoltage_mV = 3400, byte voltageDifference_mV = 20);
     void setIdleCurrentThreshold(int current_mA);
 
     // automatic balancing when battery is within balancing thresholds
-		void enableAutoBalancing(void);
-		void disableAutoBalancing(void);
-    
-		// battery status
-		int  getBatteryCurrent(void);
-		int  getBatteryVoltage(void);
-		int  getCellVoltage(byte idCell);    // from 1 to 15
-		int  getMinCellVoltage(void);
-		int  getMaxCellVoltage(void);
-		float getTemperatureDegC(byte channel = 1);
+	void enableAutoBalancing(void);
+	void disableAutoBalancing(void);
+
+	// battery status
+	int  getBatteryCurrent(void);
+	int  getBatteryVoltage(void);
+	int  getCellVoltage(byte idCell);    // from 1 to 15
+	int  getMinCellVoltage(void);
+	int  getMaxCellVoltage(void);
+	float getTemperatureDegC(byte channel = 1);
     float getTemperatureDegF(byte channel = 1);
 		
     // interrupt handling (not to be called manually!)
-		void setAlertInterruptFlag(void);
+	void setAlertInterruptFlag(void);
 
 #if BQ769X0_DEBUG
-		void printRegisters(void);		
+	void printRegisters(void);		
 #endif
    
 	private:
   
-  // Variables
-  
+    // Variables
+    bool crcEnabled;
     int I2CAddress;
     byte type;
-
     byte shuntResistorValue_mOhm;
     int thermistorBetaValue = 3435;  // typical value for Semitec 103AT-5 thermistor
 
     // indicates if a new current reading or an error is available from BMS IC
-		bool alertInterruptFlag = true;   // init with true to check and clear errors at start-up   
+	bool alertInterruptFlag = true;   // init with true to check and clear errors at start-up   
 	
     int numberOfCells;
-		int cellVoltages[MAX_NUMBER_OF_CELLS];          // mV
+	int cellVoltages[MAX_NUMBER_OF_CELLS];          // mV
     byte idCellMaxVoltage;
     byte idCellMinVoltage;
-		long batVoltage;                                // mV
-		long batCurrent;                                // mA
-		int temperatures[MAX_NUMBER_OF_THERMISTORS];    // °C/10
+	long batVoltage;                                // mV
+	long batCurrent;                                // mA
+	int temperatures[MAX_NUMBER_OF_THERMISTORS];    // °C/10
 
     // Current limits (mA)
     long maxChargeCurrent;
@@ -134,25 +133,19 @@ class bq769x0 {
     bool balancingActive = false;
     int balancingMinIdleTime_s = 1800;    // default: 30 minutes
     unsigned long idleTimestamp = 0;
-    
-		unsigned int secSinceErrorCounter = 0;
-		unsigned long interruptTimestamp = 0;
-
-		static bq769x0* instancePointer;
+	unsigned int secSinceErrorCounter = 0;
+	unsigned long interruptTimestamp = 0;
+	static bq769x0* instancePointer;
   
-  // Methods
-  
-		static void alertISR(void);
-    
-		void  updateVoltages(void);
-		void  updateCurrent(bool ignoreCCReadyFlag = false);
-		void  updateTemperatures(void);
-    
+    // Methods
+    bool determineAddressAndCrc(void);
+	static void alertISR(void);
+	void updateVoltages(void);
+	void updateCurrent(bool ignoreCCReadyFlag = false);
+	void updateTemperatures(void);
     byte updateBalancingSwitches(void);
-
-		int  readRegister(byte address);
-		void writeRegister(byte address, int data);
-		
+	int readRegister(byte address);
+	void writeRegister(byte address, int data);
 };
 
 #endif // BQ769X0_H
