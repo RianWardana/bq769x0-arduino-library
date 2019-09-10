@@ -21,6 +21,7 @@
   TODO:
   - Balancing algorithm
   - SOC calculation + coulomb counting
+  - Autobalancing (what is this?)
 */
 
 #include <Arduino.h>
@@ -96,7 +97,7 @@ int bq769x0::begin(byte alertPin, byte bootPin)
   Wire.begin();        // join I2C bus
 
   // initialize variables
-  for (byte i = 0; i < 4; i++) {
+  for (byte i = 0; i < numberOfCells; i++) {
     cellVoltages[i] = 0;
   }
   
@@ -119,7 +120,7 @@ int bq769x0::begin(byte alertPin, byte bootPin)
     Serial.println(crcEnabled);
 
     // initial settings for bq769x0
-    writeRegister(SYS_CTRL1, B00011000);  // switch external thermistor and ADC on
+    writeRegister(SYS_CTRL1, B00011000);  // switch external thermistor (TEMP_SEL) and ADC on (ADC_EN)
     writeRegister(SYS_CTRL2, B01000000);  // switch CC_EN on
 
     // attach ALERT interrupt to this instance
@@ -135,9 +136,7 @@ int bq769x0::begin(byte alertPin, byte bootPin)
 
   else
   {
-    #if BQ769X0_DEBUG
     Serial.println("BMS communication error");
-    #endif
     return 1;
   }
 }
@@ -185,7 +184,6 @@ int bq769x0::checkStatus()
     return 0;
   }
   else {
-    
     regSYS_STAT_t sys_stat;
     sys_stat.regByte = readRegister(SYS_STAT);
 
@@ -282,6 +280,7 @@ int bq769x0::checkStatus()
 
 void bq769x0::update()
 {
+  Serial.println("update");
   updateCurrent();  // will only read new current value if alert was triggered
   updateVoltages();
   updateTemperatures();
@@ -302,6 +301,7 @@ void bq769x0::shutdown()
 
 bool bq769x0::enableCharging()
 {
+  Serial.print("enableCharging: ");
   if (checkStatus() == 0 &&
     cellVoltages[idCellMaxVoltage] < maxCellVoltage &&
     temperatures[0] < maxCellTempCharge &&
@@ -310,12 +310,11 @@ bool bq769x0::enableCharging()
     byte sys_ctrl2;
     sys_ctrl2 = readRegister(SYS_CTRL2);
     writeRegister(SYS_CTRL2, sys_ctrl2 | B00000001);  // switch CHG on
-    #if BQ769X0_DEBUG
     Serial.println("Enabling CHG FET");
-    #endif
     return true;
   }
   else {
+    Serial.println("failed");
     return false;
   }
 }
@@ -324,6 +323,7 @@ bool bq769x0::enableCharging()
 
 bool bq769x0::enableDischarging()
 {
+  Serial.print("enableDischarging: ");
   if (checkStatus() == 0 &&
     cellVoltages[idCellMinVoltage] > minCellVoltage &&
     temperatures[0] < maxCellTempDischarge &&
@@ -332,9 +332,11 @@ bool bq769x0::enableDischarging()
     byte sys_ctrl2;
     sys_ctrl2 = readRegister(SYS_CTRL2);
     writeRegister(SYS_CTRL2, sys_ctrl2 | B00000010);  // switch DSG on
+    Serial.println("enabled");
     return true;
   }
   else {
+    Serial.println("failed");
     return false;
   }
 }
@@ -362,6 +364,7 @@ void bq769x0::setBalancingThresholds(int idleTime_min, int absVoltage_mV, byte v
 
 byte bq769x0::updateBalancingSwitches(void)
 {
+  Serial.println("updateBalancingSwitches");
   long idleSeconds = (millis() - idleTimestamp) / 1000;
   byte numberOfSections = numberOfCells/5;
   
@@ -666,6 +669,7 @@ void bq769x0::updateTemperatures()
 
 void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
 {
+  Serial.println("updateCurrent");
   int16_t adcVal = 0;
   regSYS_STAT_t sys_stat;
   sys_stat.regByte = readRegister(SYS_STAT);
@@ -691,6 +695,7 @@ void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
     }
 
     writeRegister(SYS_STAT, B10000000);  // Clear CC ready flag	
+    Serial.println("updateCurrent: updated, CC flag cleared");
   }
 }
 
@@ -700,6 +705,7 @@ void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
 
 void bq769x0::updateVoltages()
 {
+  Serial.println("updateVoltages");
   long adcVal = 0;
   char buf[4];
   int connectedCellsTemp = 0;
@@ -738,10 +744,10 @@ void bq769x0::updateVoltages()
       // check if CRC matches data bytes
       // CRC of first byte includes slave address (including R/W bit) and data
       crc = _crc8_ccitt_update(0, (I2CAddress << 1) | 1);
-      crc = _crc8_ccitt_update(crc, buf[0]);
+      crc = _crc8_ccitt_update(crc, buf[0] & B00111111);
       if (crc != buf[1]){
         Serial.println("CRC check failed - VCxHI data and its CRC doesn't match");
-        return; //don't save corrupt value and exit
+        return; //don't save corrupted value and exit
       }
         
       // CRC of subsequent bytes contain only data
@@ -787,6 +793,8 @@ void bq769x0::updateVoltages()
 
 void bq769x0::writeRegister(byte address, int data)
 {
+  Serial.print("writeRegister: ");
+  Serial.println(byte2char(address));
   uint8_t crc = 0;
   char buf[3];
   buf[0] = (char) address;
@@ -811,14 +819,40 @@ void bq769x0::writeRegister(byte address, int data)
 }
 
 //----------------------------------------------------------------------------
+// now supports CRC, taken from mbed version of LibreSolar firmware
 
 int bq769x0::readRegister(byte address)
-{  
+{
+  Serial.print("readRegister: ");
+  Serial.println(byte2char(address));
+
+  uint8_t crc = 0;
+  char buf[2];
+  buf[0] = (char) address;
+
+  // _i2c.write(I2CAddress << 1, buf, 1);;
   Wire.beginTransmission(I2CAddress);
-  Wire.write(address);
+  Wire.write(buf[0]);
   Wire.endTransmission();
-  Wire.requestFrom(I2CAddress, 1);
-  return Wire.read();
+
+  if (crcEnabled == true) {
+    do {
+      // _i2c.read(I2CAddress << 1, buf, 2);
+      Wire.requestFrom(I2CAddress, 2);
+      buf[0] = Wire.read();
+      buf[1] = Wire.read();
+      // CRC is calculated over the slave address (including R/W bit) and data.
+      crc = _crc8_ccitt_update(crc, (I2CAddress << 1) | 1);
+      crc = _crc8_ccitt_update(crc, buf[0]);
+    } while (crc != buf[1]);
+    return buf[0];
+  }
+  else {
+    // _i2c.read(I2CAddress << 1, buf, 1);
+    // return buf[0];
+    Wire.requestFrom(I2CAddress, 1);
+    return Wire.read();
+  }
 }
 
 //----------------------------------------------------------------------------
@@ -841,9 +875,6 @@ void bq769x0::alertISR()
     instancePointer->setAlertInterruptFlag();
   }
 }
-
-
-#if BQ769X0_DEBUG
 
 //----------------------------------------------------------------------------
 // for debug purposes
@@ -901,5 +932,3 @@ void bq769x0::printRegisters()
   // Serial.print(F("0x59 ADCGAIN2:  "));
   // Serial.println(byte2char(readRegister(ADCGAIN2)));
 }
-
-#endif
