@@ -81,7 +81,7 @@ class bq769x0 {
 
 	// battery status
 	int  getBatteryCurrent(void);
-	int  getBatteryVoltage(void);
+	long  getBatteryVoltage(void);
 	int  getCellVoltage(byte idCell);    // from 1 to 15
 	int  getMinCellVoltage(void);
 	int  getMaxCellVoltage(void);
@@ -111,7 +111,7 @@ class bq769x0 {
 	int cellVoltages[MAX_NUMBER_OF_CELLS];          // mV
     byte idCellMaxVoltage;
     byte idCellMinVoltage;
-	long batVoltage;                                // mV
+	long long batVoltage;                           // mV
 	long batCurrent;                                // mA
 	int temperatures[MAX_NUMBER_OF_THERMISTORS];    // °C/10
 

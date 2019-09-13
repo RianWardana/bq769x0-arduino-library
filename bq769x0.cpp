@@ -610,7 +610,7 @@ int bq769x0::getBatteryCurrent()
 
 //----------------------------------------------------------------------------
 
-int bq769x0::getBatteryVoltage()
+long bq769x0::getBatteryVoltage()
 {
   return batVoltage;
 }
@@ -724,10 +724,9 @@ void bq769x0::updateVoltages()
   LOG_PRINTLN("updateVoltages");
   long adcVal = 0;
   char buf[4];
-  int connectedCellsTemp = 0;
+  int connectedCells = 0;
   idCellMaxVoltage = 0; //resets to zero before writing values to these vars
   idCellMinVoltage = 0;
-  byte connectedCells = 0;
 
   uint8_t crc;
   crc = 0;
@@ -787,7 +786,7 @@ void bq769x0::updateVoltages()
   
     // filter out voltage readings from unconnected cell(s)
     if (cellVoltages[i] > 500) {  
-      connectedCellsTemp++; // add one to the temporary cell counter var - only readings above 500mV are counted towards real cell count
+      connectedCells++; // add one to the temporary cell counter var - only readings above 500mV are counted towards real cell count
     }
 
     if (cellVoltages[i] > cellVoltages[idCellMaxVoltage]) {
@@ -799,10 +798,8 @@ void bq769x0::updateVoltages()
     }
   }
   
-  connectedCells = connectedCellsTemp;
-  adcVal = (readRegister(BAT_HI_BYTE) << 8) | readRegister(BAT_LO_BYTE);
-  batVoltage = 4 * adcGain * adcVal / 1000 + connectedCells * adcOffset;
-  LOG_PRINTLN(byte2char(adcVal));
+  long adcValPack = ((readRegister(BAT_HI_BYTE) << 8) | readRegister(BAT_LO_BYTE)) & 0b1111111111111111;
+  batVoltage = 4 * adcGain * adcValPack / 1000 + (connectedCells * adcOffset); // in original LibreSolar, connectedCells is converted to byte, maybe to reduce bit size
 }
 
 //----------------------------------------------------------------------------
@@ -911,41 +908,41 @@ void bq769x0::alertISR()
 #if BQ769X0_DEBUG
   void bq769x0::printRegisters()
   {
-    // LOG_PRINT(F("0x00 SYS_STAT:  "));
-    // LOG_PRINTLN(byte2char(readRegister(SYS_STAT)));
+    LOG_PRINT(F("0x00 SYS_STAT:  "));
+    LOG_PRINTLN(byte2char(readRegister(SYS_STAT)));
 
-    // LOG_PRINT(F("0x01 CELLBAL1:  "));
-    // LOG_PRINTLN(byte2char(readRegister(CELLBAL1)));
+    LOG_PRINT(F("0x01 CELLBAL1:  "));
+    LOG_PRINTLN(byte2char(readRegister(CELLBAL1)));
 
-    // LOG_PRINT(F("0x02 CELLBAL2:  "));
-    // LOG_PRINTLN(byte2char(readRegister(CELLBAL2)));
+    LOG_PRINT(F("0x02 CELLBAL2:  "));
+    LOG_PRINTLN(byte2char(readRegister(CELLBAL2)));
 
-    // LOG_PRINT(F("0x03 CELLBAL3:  "));
-    // LOG_PRINTLN(byte2char(readRegister(CELLBAL3)));
+    LOG_PRINT(F("0x03 CELLBAL3:  "));
+    LOG_PRINTLN(byte2char(readRegister(CELLBAL3)));
 
-    // LOG_PRINT(F("0x04 SYS_CTRL1: "));
-    // LOG_PRINTLN(byte2char(readRegister(SYS_CTRL1)));
+    LOG_PRINT(F("0x04 SYS_CTRL1: "));
+    LOG_PRINTLN(byte2char(readRegister(SYS_CTRL1)));
     
-    // LOG_PRINT(F("0x05 SYS_CTRL2: "));
-    // LOG_PRINTLN(byte2char(readRegister(SYS_CTRL2)));
+    LOG_PRINT(F("0x05 SYS_CTRL2: "));
+    LOG_PRINTLN(byte2char(readRegister(SYS_CTRL2)));
     
-    // LOG_PRINT(F("0x06 PROTECT1:  "));
-    // LOG_PRINTLN(byte2char(readRegister(PROTECT1)));
+    LOG_PRINT(F("0x06 PROTECT1:  "));
+    LOG_PRINTLN(byte2char(readRegister(PROTECT1)));
     
-    // LOG_PRINT(F("0x07 PROTECT2:  "));
-    // LOG_PRINTLN(byte2char(readRegister(PROTECT2)));
+    LOG_PRINT(F("0x07 PROTECT2:  "));
+    LOG_PRINTLN(byte2char(readRegister(PROTECT2)));
     
-    // LOG_PRINT(F("0x08 PROTECT3   "));
-    // LOG_PRINTLN(byte2char(readRegister(PROTECT3)));
+    LOG_PRINT(F("0x08 PROTECT3   "));
+    LOG_PRINTLN(byte2char(readRegister(PROTECT3)));
     
-    // LOG_PRINT(F("0x09 OV_TRIP:   "));
-    // LOG_PRINTLN(byte2char(readRegister(OV_TRIP)));
+    LOG_PRINT(F("0x09 OV_TRIP:   "));
+    LOG_PRINTLN(byte2char(readRegister(OV_TRIP)));
     
-    // LOG_PRINT(F("0x0A UV_TRIP:   "));
-    // LOG_PRINTLN(byte2char(readRegister(UV_TRIP)));
+    LOG_PRINT(F("0x0A UV_TRIP:   "));
+    LOG_PRINTLN(byte2char(readRegister(UV_TRIP)));
     
-    // LOG_PRINT(F("0x0B CC_CFG:    "));
-    // LOG_PRINTLN(byte2char(readRegister(CC_CFG)));
+    LOG_PRINT(F("0x0B CC_CFG:    "));
+    LOG_PRINTLN(byte2char(readRegister(CC_CFG)));
 
     LOG_PRINT(F("0x2A BAT_HI:     "));
     LOG_PRINTLN(byte2char(readRegister(BAT_HI_BYTE)));
@@ -953,11 +950,11 @@ void bq769x0::alertISR()
     LOG_PRINT(F("0x2B BAT_LO:     "));
     LOG_PRINTLN(byte2char(readRegister(BAT_LO_BYTE)));
 
-    // LOG_PRINT(F("0x32 CC_HI:     "));
-    // LOG_PRINTLN(byte2char(readRegister(CC_HI_BYTE)));
+    LOG_PRINT(F("0x32 CC_HI:     "));
+    LOG_PRINTLN(byte2char(readRegister(CC_HI_BYTE)));
 
-    // LOG_PRINT(F("0x33 CC_LO:     "));
-    // LOG_PRINTLN(byte2char(readRegister(CC_LO_BYTE)));
+    LOG_PRINT(F("0x33 CC_LO:     "));
+    LOG_PRINTLN(byte2char(readRegister(CC_LO_BYTE)));
 
     // LOG_PRINT(F("0x50 ADCGAIN1:  "));
     // LOG_PRINTLN(byte2char(readRegister(ADCGAIN1)));
