@@ -33,7 +33,7 @@
 #define bq76940 3
 
 // output information to serial console for debugging
-#define BQ769X0_DEBUG 1
+// #define BQ769X0_DEBUG 1
 #ifdef BQ769X0_DEBUG
     #define LOG_PRINT(x)    Serial.print(x)
     #define LOG_PRINTLN(x)  Serial.println(x)
@@ -80,7 +80,7 @@ class bq769x0 {
 	void disableAutoBalancing(void);
 
 	// battery status
-	int  getBatteryCurrent(void);
+	long  getBatteryCurrent(void);
 	long  getBatteryVoltage(void);
 	int  getCellVoltage(byte idCell);    // from 1 to 15
 	int  getMinCellVoltage(void);

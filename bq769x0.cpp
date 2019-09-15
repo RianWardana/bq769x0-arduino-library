@@ -213,51 +213,39 @@ int bq769x0::checkStatus()
         if (sys_stat.regByte & B00100000) { // XR error
           // datasheet recommendation: try to clear after waiting a few seconds
           if (secSinceErrorCounter % 3 == 0) {
-            #if BQ769X0_DEBUG
             LOG_PRINTLN(F("Clearing XR error"));
-            #endif
             writeRegister(SYS_STAT, B00100000);
           }
         }
         if (sys_stat.regByte & B00010000) { // Alert error
           if (secSinceErrorCounter % 10 == 0) {
-            #if BQ769X0_DEBUG
             LOG_PRINTLN(F("Clearing Alert error"));
-            #endif
             writeRegister(SYS_STAT, B00010000);
           }
         }
         if (sys_stat.regByte & B00001000) { // UV error
           updateVoltages();
           if (cellVoltages[idCellMinVoltage] > minCellVoltage) {
-            #if BQ769X0_DEBUG
             LOG_PRINTLN(F("Clearing UV error"));
-            #endif
             writeRegister(SYS_STAT, B00001000);
           }
         }
         if (sys_stat.regByte & B00000100) { // OV error
           updateVoltages();
           if (cellVoltages[idCellMaxVoltage] < maxCellVoltage) {
-            #if BQ769X0_DEBUG
             LOG_PRINTLN(F("Clearing OV error"));
-            #endif
             writeRegister(SYS_STAT, B00000100);
           }
         }
         if (sys_stat.regByte & B00000010) { // SCD
           if (secSinceErrorCounter % 60 == 0) {
-            #if BQ769X0_DEBUG
             LOG_PRINTLN(F("Clearing SCD error"));
-            #endif
             writeRegister(SYS_STAT, B00000010);
           }
         }
         if (sys_stat.regByte & B00000001) { // OCD
           if (secSinceErrorCounter % 60 == 0) {
-            #if BQ769X0_DEBUG
             LOG_PRINTLN(F("Clearing OCD error"));
-            #endif
             writeRegister(SYS_STAT, B00000001);
           }
         }
@@ -603,7 +591,7 @@ int bq769x0::setCellOvervoltageProtection(int voltage_mV, int delay_s)
 
 //----------------------------------------------------------------------------
 
-int bq769x0::getBatteryCurrent()
+long bq769x0::getBatteryCurrent()
 {
   return batCurrent;
 }
@@ -701,7 +689,7 @@ void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
     }
     
     // reset idleTimestamp
-    if (abs(batCurrent) > idleCurrentThreshold) {
+    if (batCurrent > idleCurrentThreshold) {
       idleTimestamp = millis();
     }
 
