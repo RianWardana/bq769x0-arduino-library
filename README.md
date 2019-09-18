@@ -50,4 +50,5 @@ void loop()
 ## To Do list
 
 - Proper SOC estimation and coloumb counter implementation
+- Testing for ICs with more than 5 cells
 - Software protection for charge overcurrent
