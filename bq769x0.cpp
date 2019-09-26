@@ -612,7 +612,7 @@ int bq769x0::getMaxCellVoltage()
 
 //----------------------------------------------------------------------------
 
-int bq769x0::getCellVoltage(byte idCell)
+long bq769x0::getCellVoltage(byte idCell)
 {
   return cellVoltages[idCell-1];
 }
@@ -710,7 +710,7 @@ void bq769x0::updateCurrent(bool ignoreCCReadyFlag)
 void bq769x0::updateVoltages()
 {
   LOG_PRINTLN("updateVoltages");
-  long adcVal = 0;
+  // uint16_t adcVal = 0;
   char buf[4];
   int connectedCells = 0;
   idCellMaxVoltage = 0; //resets to zero before writing values to these vars
@@ -769,9 +769,17 @@ void bq769x0::updateVoltages()
     }
 
     // combine VCx_HI and VCx_LO bits and calculate cell voltage
-    adcVal = (buf[0] & 0b00111111) << 8 | buf[2];           // read VCx_HI bits and drop the first two bits, shift left then append VCx_LO bits
-    cellVoltages[i] = adcVal * adcGain / 1000 + adcOffset;  // calculate real voltage in mV
-  
+    uint16_t adcVal = ((buf[0] & 0b00111111) << 8) | (buf[2] & 0b11111111);
+    cellVoltageTemp = adcVal * adcGain / 1000 + adcOffset;
+    // cellVoltages[i] = adcVal * adcGain / 1000 + adcOffset;  // calculate real voltage in mV
+    cellVoltages[i] = cellVoltageTemp;
+    Serial.println("---<adcVal(bin), adcVal, adcVal * adcGain>-----");
+    Serial.println(adcVal, BIN);
+    Serial.println(adcVal);
+    Serial.println(adcVal * adcGain);
+    Serial.println(cellVoltageTemp, BIN);
+    // Serial.println(cellVoltageTemp, DEC);
+
     // filter out voltage readings from unconnected cell(s)
     if (cellVoltages[i] > 500) {  
       connectedCells++; // add one to the temporary cell counter var - only readings above 500mV are counted towards real cell count
@@ -894,8 +902,7 @@ void bq769x0::alertISR()
 //----------------------------------------------------------------------------
 // for debug purposes
 #if BQ769X0_DEBUG
-  void bq769x0::printRegisters()
-  {
+  void bq769x0::printRegisters() {
     LOG_PRINT(F("0x00 SYS_STAT:  "));
     LOG_PRINTLN(byte2char(readRegister(SYS_STAT)));
 
@@ -952,5 +959,32 @@ void bq769x0::alertISR()
 
     // LOG_PRINT(F("0x59 ADCGAIN2:  "));
     // LOG_PRINTLN(byte2char(readRegister(ADCGAIN2)));
+  }
+
+  void bq769x0::printCellsRegisters() {
+    LOG_PRINT(F("VC1_HI:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC1_HI_BYTE)));
+    LOG_PRINT(F("VC1_LO:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC1_LO_BYTE)));
+
+    LOG_PRINT(F("VC2_HI:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC2_HI_BYTE)));
+    LOG_PRINT(F("VC2_LO:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC2_LO_BYTE)));
+
+    LOG_PRINT(F("VC3_HI:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC3_HI_BYTE)));
+    LOG_PRINT(F("VC3_LO:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC3_LO_BYTE)));
+
+    LOG_PRINT(F("VC4_HI:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC4_HI_BYTE)));
+    LOG_PRINT(F("VC4_LO:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC4_LO_BYTE)));
+
+    LOG_PRINT(F("VC5_HI:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC5_HI_BYTE)));
+    LOG_PRINT(F("VC5_LO:     "));
+    LOG_PRINTLN(byte2char(readRegister(VC5_LO_BYTE)));
   }
 #endif

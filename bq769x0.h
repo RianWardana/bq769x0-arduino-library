@@ -33,7 +33,7 @@
 #define bq76940 3
 
 // output information to serial console for debugging
-// #define BQ769X0_DEBUG 1
+#define BQ769X0_DEBUG 1
 #ifdef BQ769X0_DEBUG
     #define LOG_PRINT(x)    Serial.print(x)
     #define LOG_PRINTLN(x)  Serial.println(x)
@@ -82,7 +82,7 @@ class bq769x0 {
 	// battery status
 	long  getBatteryCurrent(void);
 	long  getBatteryVoltage(void);
-	int  getCellVoltage(byte idCell);    // from 1 to 15
+	long  getCellVoltage(byte idCell);    // from 1 to 15
 	int  getMinCellVoltage(void);
 	int  getMaxCellVoltage(void);
 	float getTemperatureDegC(byte channel = 1);
@@ -93,6 +93,7 @@ class bq769x0 {
 
 #if BQ769X0_DEBUG
 	void printRegisters(void);		
+    void printCellsRegisters(void);  
 #endif
    
 	private:
@@ -108,7 +109,8 @@ class bq769x0 {
 	bool alertInterruptFlag = true;   // init with true to check and clear errors at start-up   
 	
     int numberOfCells;
-	int cellVoltages[MAX_NUMBER_OF_CELLS];          // mV
+    long long cellVoltageTemp;
+	long long cellVoltages[MAX_NUMBER_OF_CELLS];          // mV
     byte idCellMaxVoltage;
     byte idCellMinVoltage;
 	long long batVoltage;                           // mV
